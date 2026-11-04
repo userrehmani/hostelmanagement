@@ -38,7 +38,7 @@ const emptyDB = {
 };
 
 // ============================================================================
-// 1. MULTI-TENANT SAAS ENGINE & REMOTE KILL-SWITCH
+// 1. MULTI-TENANT SAAS ENGINE & INSTANT CLOUD SYNC
 // ============================================================================
 const urlParams = new URLSearchParams(window.location.search);
 const TENANT_ID = (urlParams.get("hostel") || localStorage.getItem("SAAS_TENANT_ID") || "main_hostel").toLowerCase().replace(/[^a-z0-9_-]/g, "");
@@ -46,6 +46,7 @@ try { localStorage.setItem("SAAS_TENANT_ID", TENANT_ID); } catch (e) {}
 
 const DB_KEY = "HOSTEL_SAAS_DB_" + TENANT_ID;
 let cloudDocRef = null;
+let isSavingToCloud = false;
 
 window.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("a[href]").forEach(link => {
@@ -56,8 +57,23 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+// Listen for cross-tab localStorage updates immediately
+window.addEventListener("storage", (e) => {
+  if (!e.key || e.key === DB_KEY) {
+    refreshCurrentPortalUI();
+  }
+});
+
 function isMasterPage() {
   return location.pathname.toLowerCase().includes("master") || !!document.getElementById("masterLoginGate");
+}
+
+function getCloudDocRef() {
+  if (cloudDocRef) return cloudDocRef;
+  if (typeof firebase !== "undefined" && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === "function") {
+    cloudDocRef = firebase.firestore().collection("hostel_system").doc(TENANT_ID);
+  }
+  return cloudDocRef;
 }
 
 function startFirestoreListener() {
@@ -72,6 +88,8 @@ function startFirestoreListener() {
 
     cloudDocRef = firestore.collection("hostel_system").doc(TENANT_ID);
     cloudDocRef.onSnapshot((docSnap) => {
+      if (isSavingToCloud) return; // Prevent race-condition overwrite while saving
+
       if (docSnap.exists) {
         const cloudData = docSnap.data();
         cloudData.settings = cloudData.settings || {};
@@ -88,8 +106,31 @@ function startFirestoreListener() {
           return;
         }
 
-        try { localStorage.setItem(DB_KEY, JSON.stringify(cloudData)); } catch (e) {}
+        // Smart Merge: Preserve any locally submitted application that hasn't synced to cloud yet
+        try {
+          const localRaw = localStorage.getItem(DB_KEY);
+          if (localRaw) {
+            const localData = JSON.parse(localRaw);
+            const localApps = localData.applications || [];
+            const cloudApps = cloudData.applications || [];
+            const cloudAppIds = new Set(cloudApps.map(a => String(a.id)));
+            localApps.forEach(la => {
+              if (la && la.id && !cloudAppIds.has(String(la.id)) && la.status === "Pending") {
+                cloudApps.unshift(la);
+              }
+            });
+            cloudData.applications = cloudApps;
+          }
+        } catch (mergeErr) {}
+
+        try { localStorage.setItem(DB_KEY, JSON.stringify(cloudData)); } catch (e) {
+          console.warn("LocalStorage quota warning:", e);
+        }
         refreshCurrentPortalUI();
+      } else {
+        // Document doesn't exist in Firestore yet — push current local DB to initialize cloud!
+        const initialLocal = getDB();
+        cloudDocRef.set(initialLocal).catch(() => {});
       }
     }, (err) => {
       console.error("Firestore Sync Error:", err);
@@ -103,20 +144,24 @@ function initSecureFirebase() {
   if (typeof firebase === "undefined") return;
   if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 
+  // Immediately initialize cloudDocRef so saveDB never misses a write!
+  getCloudDocRef();
+
   const connectWithAuth = () => {
     let started = false;
+    // Start listener immediately, and also re-bind if auth state changes
+    startFirestoreListener();
+    started = true;
+
     if (typeof firebase.auth === "function") {
       firebase.auth().onAuthStateChanged((user) => {
-        if (user) {
-          if (!started) { started = true; startFirestoreListener(); }
-        } else {
-          firebase.auth().signInAnonymously().catch(() => {
-            if (!started) { started = true; startFirestoreListener(); }
-          });
+        if (!user) {
+          firebase.auth().signInAnonymously().catch(() => {});
+        } else if (!started) {
+          started = true;
+          startFirestoreListener();
         }
       });
-    } else {
-      startFirestoreListener();
     }
   };
 
@@ -138,6 +183,7 @@ initSecureFirebase();
 // ============================================================================
 function refreshCurrentPortalUI() {
   if (typeof renderAdminAll === "function") renderAdminAll();
+  if (typeof window.renderAdminPage === "function") window.renderAdminPage();
   if (typeof loadPublicSite === "function") loadPublicSite();
   if (typeof renderPublicPage === "function") renderPublicPage();
   if (typeof renderWardenConsole === "function") renderWardenConsole();
@@ -154,6 +200,9 @@ function getDB() {
     }
     const parsed = JSON.parse(raw);
     parsed.settings = parsed.settings || {};
+    parsed.rooms = parsed.rooms || [];
+    parsed.students = parsed.students || [];
+    parsed.applications = parsed.applications || [];
     if (!parsed.settings.adminEmail) parsed.settings.adminEmail = MASTER_FOUNDER_EMAIL;
     if (!parsed.settings.adminPass) parsed.settings.adminPass = MASTER_FOUNDER_PASS;
     if (!parsed.settings.wardenEmail) parsed.settings.wardenEmail = parsed.settings.adminEmail || MASTER_FOUNDER_EMAIL;
@@ -172,11 +221,30 @@ function saveDB(db, actionText, actor = "Admin") {
       actor,
       action: actionText
     });
+    if (db.logs.length > 60) db.logs = db.logs.slice(0, 60); // Keep logs compact
   }
-  try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (e) {}
-  if (cloudDocRef) {
-    cloudDocRef.set(db).catch(err => console.error("Cloud Sync Error:", err));
+
+  try {
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+  } catch (e) {
+    console.warn("LocalStorage full, trimming old logs...", e);
+    db.logs = (db.logs || []).slice(0, 15);
+    try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (err2) {}
   }
+
+  const ref = getCloudDocRef();
+  if (ref) {
+    isSavingToCloud = true;
+    ref.set(db)
+      .then(() => {
+        isSavingToCloud = false;
+      })
+      .catch(err => {
+        isSavingToCloud = false;
+        console.error("Cloud Sync Error:", err);
+      });
+  }
+  refreshCurrentPortalUI();
 }
 
 function wipeAllData() {
@@ -199,7 +267,8 @@ function wipeAllData() {
       };
     }
     try { localStorage.setItem(DB_KEY, JSON.stringify(fresh)); } catch (e) {}
-    if (cloudDocRef) cloudDocRef.set(fresh).then(() => location.reload());
+    const ref = getCloudDocRef();
+    if (ref) ref.set(fresh).then(() => location.reload());
     else location.reload();
   }
 }
@@ -250,7 +319,7 @@ function getLiveMetrics() {
 
   const totalExpenses = (db.expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const netProfit = collectedFee - totalExpenses;
-  const pendingApps = (db.applications || []).filter(a => a.status === "Pending").length;
+  const pendingApps = (db.applications || []).filter(a => !a.status || a.status === "Pending").length;
   const openComplaints = (db.complaints || []).filter(c => c.status !== "Resolved").length;
 
   return {
@@ -382,34 +451,6 @@ function upgradeSecurityStatusSelectors() {
       }
     };
   }
-
-  if (typeof window.confirmApproveAndAllot === "function") {
-    const _origConfirmAllot = window.confirmApproveAndAllot;
-    window.confirmApproveAndAllot = function(e) {
-      const isAlreadyPaid = document.getElementById("allotSecStatus")?.value === "already_paid";
-      _origConfirmAllot(e);
-      const db = getDB();
-      if (db.students && db.students[0]) {
-        db.students[0].securityPaid = isAlreadyPaid;
-        saveDB(db);
-        if (typeof renderAdminAll === "function") renderAdminAll();
-      }
-    };
-  }
-
-  if (typeof window.addStudentManual === "function") {
-    const _origAddManual = window.addStudentManual;
-    window.addStudentManual = function(e) {
-      const isAlreadyPaid = document.getElementById("stuSecStatus")?.value === "already_paid";
-      _origAddManual(e);
-      const db = getDB();
-      if (db.students && db.students[0]) {
-        db.students[0].securityPaid = isAlreadyPaid;
-        saveDB(db);
-        if (typeof renderAdminAll === "function") renderAdminAll();
-      }
-    };
-  }
 }
 
 function upgradePortalLoginGates() {
@@ -455,9 +496,10 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!email || !pass) return alert("⚠️ Please enter both Admin Email and Password!");
 
     let db = getDB();
-    if (cloudDocRef) {
+    const ref = getCloudDocRef();
+    if (ref) {
       try {
-        const snap = await cloudDocRef.get();
+        const snap = await ref.get();
         if (snap.exists) { db = snap.data(); localStorage.setItem(DB_KEY, JSON.stringify(db)); }
       } catch (err) {}
     }
@@ -488,9 +530,10 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!email || !pass) return alert("⚠️ Please enter both Warden Email and Password!");
 
     let db = getDB();
-    if (cloudDocRef) {
+    const ref = getCloudDocRef();
+    if (ref) {
       try {
-        const snap = await cloudDocRef.get();
+        const snap = await ref.get();
         if (snap.exists) { db = snap.data(); localStorage.setItem(DB_KEY, JSON.stringify(db)); }
       } catch (err) {}
     }
@@ -832,7 +875,8 @@ function sendStudentFeeReminder(studentId) {
   const secDue = s.securityPaid ? 0 : Number(s.security || 0);
   const total = Number(s.rent || 0) + Number(s.mess || 0) + Number(s.elec || 0) + Number(s.otherCharges || 0) + secDue - Number(s.discount || 0);
   const month = db.settings.currentMonth || new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-  const cleanPhone = "92" + (s.phone || "").replace(/[^0-9]/g, "").replace(/^0/, "");
+  const rawPh = (s.phone || "").replace(/[^0-9]/g, "");
+  const cleanPhone = rawPh.startsWith("92") ? rawPh : "92" + rawPh.replace(/^0/, "");
   const msg = `*FEE REMINDER — ${db.settings.hostelName}*\n\nSalam *${s.name}* (${s.id}, Room ${s.room}),\nYour hostel fee for *${month}* is *${s.feeStatus.toUpperCase()}*.\n\n💰 *Payable:* Rs. ${total.toLocaleString()}\n💳 *Account:* ${db.settings.jazzcash}`;
   window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, "_blank");
 }
@@ -843,7 +887,8 @@ function sendGuardianAlert(studentId) {
   if (!s) return;
   const targetPhone = s.guardian || s.phone;
   if (!targetPhone) return alert("⚠️ No Guardian phone number saved!");
-  const cleanPhone = "92" + targetPhone.replace(/[^0-9]/g, "").replace(/^0/, "");
+  const rawPh = targetPhone.replace(/[^0-9]/g, "");
+  const cleanPhone = rawPh.startsWith("92") ? rawPh : "92" + rawPh.replace(/^0/, "");
   const secDue = s.securityPaid ? 0 : Number(s.security || 0);
   const total = Number(s.rent || 0) + Number(s.mess || 0) + Number(s.elec || 0) + Number(s.otherCharges || 0) + secDue - Number(s.discount || 0);
   const msg = `*GUARDIAN ALERT — ${db.settings.hostelName}*\n\nRespected Guardian of *${s.name}* (Room ${s.room}),\nStatus: *${s.feeStatus.toUpperCase()}* (Rs. ${total.toLocaleString()}).`;
@@ -915,12 +960,12 @@ window.handleKYCFileUpload = function(inputEl, key, previewId) {
     const img = new Image();
     img.onload = function() {
       const canvas = document.createElement("canvas");
-      const maxW = key === "photo" ? 320 : 650;
+      const maxW = key === "photo" ? 260 : 480;
       const scale = Math.min(1, maxW / img.width);
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.58);
       window.kycTempUploads[key] = dataUrl;
       const prev = document.getElementById(previewId);
       if (prev) { prev.src = dataUrl; prev.classList.remove("hidden"); prev.style.setProperty("display", "block", "important"); }
@@ -1087,7 +1132,7 @@ function applyBrandLogoEverywhere() {
 }
 
 // ============================================================================
-// 6. 📲 SMART PWA MOBILE APP INSTALLER (NO DUPLICATE 'let'!)
+// 6. 📲 SMART PWA MOBILE APP INSTALLER
 // ============================================================================
 window.pwaPromptEvent = null;
 
@@ -1128,7 +1173,6 @@ window.renderPWAInstallButtons = function() {
     return;
   }
 
-  // 1. Floating Install Button (Bottom-Right Corner — Visible on Every Page!)
   if (document.body && !document.getElementById("floatingPWAInstallBtn")) {
     var fBtn = document.createElement("button");
     fBtn.id = "floatingPWAInstallBtn";
@@ -1140,7 +1184,6 @@ window.renderPWAInstallButtons = function() {
     document.body.appendChild(fBtn);
   }
 
-  // 2. Top Header Action Bar Button
   var topTargetBtn = document.querySelector(
     "header button[onclick*='openAdmissionModal'], " +
     "header button[onclick*='openMonthlyAuditPDF'], " +
@@ -1158,7 +1201,6 @@ window.renderPWAInstallButtons = function() {
     topTargetBtn.insertAdjacentElement("beforebegin", tBtn);
   }
 
-  // 3. Inside Login Popups
   ["#studentLoginGate form", "#adminLoginGate form", "#wardenLoginGate form", "#masterLoginGate form"].forEach(function(sel) {
     var form = document.querySelector(sel);
     if (form && !form.querySelector(".pwa-install-trigger")) {
@@ -1199,9 +1241,9 @@ setInterval(window.renderPWAInstallButtons, 1000);
       document.body.appendChild(modal);
     }
     const msg = String(rawMsg || "").trim();
-    const isError = msg.includes("❌") || /invalid|incorrect|denied|error|failed|full/i.test(msg);
+    const isError = msg.includes("❌") || msg.includes("🚫") || /invalid|incorrect|denied|error|failed|full|blocked/i.test(msg);
     const isWarn  = msg.includes("⚠️") || /warning|wait|please/i.test(msg);
-    const cleanText = msg.replace(/^[✅❌⚠️🎉🗑️📲]+\s*/, "");
+    const cleanText = msg.replace(/^[✅❌⚠️🎉🗑️📲🚫ℹ️]+\s*/, "");
     const lines = cleanText.split("\n").filter(l => l.trim() !== "");
     const headline = lines[0] || (isError ? "Action Blocked" : isWarn ? "System Notice" : "Confirmed");
     const bodyLines = lines.slice(1);
