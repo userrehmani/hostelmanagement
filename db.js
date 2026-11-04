@@ -982,7 +982,6 @@ window.openPaymentReceiptModal = function(studentId) {
   showUniModal(`Payment_Receipt_${s.id}.pdf`, "portrait");
 };
 
-// 📜 HOSTEL RULES (rules.jpg) MODAL & CHECKBOX
 window.openHostelRulesModal = function() {
   let modal = document.getElementById("hostelRulesImgModal");
   if (!modal) {
@@ -1040,7 +1039,6 @@ function injectRulesCheckboxInAdmissionForm() {
   }
 }
 
-// 🖼️ BRAND LOGO ENGINE
 window.handleHostelLogoUpload = function(inputEl) {
   const file = inputEl.files && inputEl.files[0];
   if (!file) return;
@@ -1088,107 +1086,150 @@ function applyBrandLogoEverywhere() {
   });
 }
 
-let deferredInstallPrompt = null;
+// ============================================================================
+// 6. 📲 SMART PWA MOBILE APP INSTALLER (NO DUPLICATE 'let'!)
+// ============================================================================
+window.pwaPromptEvent = null;
 
-function isAppCurrentlyInstalled() {
-  return window.matchMedia("(display-mode: standalone)").matches ||
-         window.navigator.standalone === true;
-}
-
-function setInstallButtonsVisibility(show) {
-  document.querySelectorAll(".pwa-smart-install-btn").forEach(btn => {
-    if (show) {
-      btn.classList.remove("hidden");
-      btn.style.setProperty("display", "inline-flex", "important");
-    } else {
-      btn.classList.add("hidden");
-      btn.style.setProperty("display", "none", "important");
-    }
-  });
-}
-
-window.addEventListener("beforeinstallprompt", (e) => {
+window.addEventListener("beforeinstallprompt", function(e) {
   e.preventDefault();
-  deferredInstallPrompt = e;
-  injectSmartPWAInstallButtons();
-  setInstallButtonsVisibility(true);
+  window.pwaPromptEvent = e;
+  window.togglePWAInstallUI(true);
 });
 
-window.addEventListener("appinstalled", () => {
-  deferredInstallPrompt = null;
-  setInstallButtonsVisibility(false);
+window.addEventListener("appinstalled", function() {
+  window.pwaPromptEvent = null;
+  window.togglePWAInstallUI(false);
 });
 
 window.installHostelPWA = async function() {
-  if (deferredInstallPrompt) {
-    deferredInstallPrompt.prompt();
-    const { outcome } = await deferredInstallPrompt.userChoice;
-    if (outcome === "accepted") {
-      deferredInstallPrompt = null;
-      setInstallButtonsVisibility(false);
+  if (window.pwaPromptEvent) {
+    window.pwaPromptEvent.prompt();
+    var res = await window.pwaPromptEvent.userChoice;
+    if (res && res.outcome === "accepted") {
+      window.pwaPromptEvent = null;
+      window.togglePWAInstallUI(false);
     }
   } else {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    if (isIOS) {
-      alert("📲 Install on iPhone:\n1. Tap 'Share' (⬆️) at the bottom of Safari.\n2. Scroll down and tap 'Add to Home Screen (➕)'.\n3. Tap 'Add'!");
-    } else {
-      alert("📲 Install App on Phone / PC:\n1. Tap the browser menu (⋮) at the top-right corner of Chrome.\n2. Tap 'Install App' or 'Add to Home Screen'!");
-    }
+    alert("📲 Mobile App Install Karne Ka Tareeqa:\n\n1. Browser ke upar corner me 3 dots (⋮) ya Share (⬆️) par tap karein.\n2. 'Install App' ya 'Add to Home Screen' par tap karein!");
   }
 };
 
-function injectSmartPWAInstallButtons() {
-  if (isAppCurrentlyInstalled()) {
-    setInstallButtonsVisibility(false);
+window.togglePWAInstallUI = function(show) {
+  document.querySelectorAll(".pwa-install-trigger").forEach(function(el) {
+    el.style.setProperty("display", show ? "inline-flex" : "none", "important");
+  });
+};
+
+window.renderPWAInstallButtons = function() {
+  var isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  if (isStandalone) {
+    window.togglePWAInstallUI(false);
     return;
   }
 
-  // 1. Put right next to Top Header Action Button on Public, Admin, Student & Warden
-  const topTargetBtn = document.querySelector(
+  // 1. Floating Install Button (Bottom-Right Corner — Visible on Every Page!)
+  if (document.body && !document.getElementById("floatingPWAInstallBtn")) {
+    var fBtn = document.createElement("button");
+    fBtn.id = "floatingPWAInstallBtn";
+    fBtn.type = "button";
+    fBtn.onclick = window.installHostelPWA;
+    fBtn.className = "pwa-install-trigger fixed bottom-20 lg:bottom-6 right-5 z-[70] bg-emerald-700 hover:bg-emerald-600 text-white border-2 border-white px-4 py-2.5 rounded-full text-xs font-extrabold shadow-2xl cursor-pointer items-center gap-2";
+    fBtn.style.setProperty("display", "inline-flex", "important");
+    fBtn.innerHTML = '<i class="fa-solid fa-download"></i> <span>Install App</span>';
+    document.body.appendChild(fBtn);
+  }
+
+  // 2. Top Header Action Bar Button
+  var topTargetBtn = document.querySelector(
     "header button[onclick*='openAdmissionModal'], " +
     "header button[onclick*='openMonthlyAuditPDF'], " +
     "header button[onclick*='openStudentQRCard'], " +
     "header button[onclick*='openWardenGateScanner']"
   );
-
   if (topTargetBtn && !document.getElementById("pwaTopInstallBtn")) {
-    const btn = document.createElement("button");
-    btn.id = "pwaTopInstallBtn";
-    btn.type = "button";
-    btn.onclick = window.installHostelPWA;
-    btn.className = "pwa-smart-install-btn bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 shadow-xs items-center gap-1.5";
-    btn.style.setProperty("display", "inline-flex", "important");
-    btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button text-emerald-400"></i> <span>Install App</span>`;
-    topTargetBtn.insertAdjacentElement("beforebegin", btn);
+    var tBtn = document.createElement("button");
+    tBtn.id = "pwaTopInstallBtn";
+    tBtn.type = "button";
+    tBtn.onclick = window.installHostelPWA;
+    tBtn.className = "pwa-install-trigger bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 shadow-xs items-center gap-1.5";
+    tBtn.style.setProperty("display", "inline-flex", "important");
+    tBtn.innerHTML = '<i class="fa-solid fa-mobile-screen-button text-emerald-400"></i> <span>Install App</span>';
+    topTargetBtn.insertAdjacentElement("beforebegin", tBtn);
   }
 
-  // 2. Put right below Submit Button inside All Login Popups
-  document.querySelectorAll("#studentLoginGate form, #adminLoginGate form, #wardenLoginGate form, #masterLoginGate form").forEach(form => {
-    if (!form.querySelector(".pwa-smart-install-btn")) {
-      const lBtn = document.createElement("button");
+  // 3. Inside Login Popups
+  ["#studentLoginGate form", "#adminLoginGate form", "#wardenLoginGate form", "#masterLoginGate form"].forEach(function(sel) {
+    var form = document.querySelector(sel);
+    if (form && !form.querySelector(".pwa-install-trigger")) {
+      var lBtn = document.createElement("button");
       lBtn.type = "button";
       lBtn.onclick = window.installHostelPWA;
-      lBtn.className = "pwa-smart-install-btn w-full bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 py-2.5 px-4 rounded-xl text-xs font-extrabold transition cursor-pointer items-center justify-center gap-2 mt-2";
+      lBtn.className = "pwa-install-trigger w-full bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 py-2.5 px-4 rounded-xl text-xs font-extrabold transition cursor-pointer items-center justify-center gap-2 mt-2";
       lBtn.style.setProperty("display", "inline-flex", "important");
-      lBtn.innerHTML = `<i class="fa-solid fa-download"></i> Install Mobile App`;
+      lBtn.innerHTML = '<i class="fa-solid fa-mobile-screen-button"></i> <span>Install Mobile App</span>';
       form.appendChild(lBtn);
     }
   });
+};
 
-  // 3. Floating Bottom-Right "📲 Install App" Pill (Guaranteed Visible on Every Screen!)
-  if (!document.getElementById("pwaFloatingInstallBtn")) {
-    const floatBtn = document.createElement("button");
-    floatBtn.id = "pwaFloatingInstallBtn";
-    floatBtn.type = "button";
-    floatBtn.onclick = window.installHostelPWA;
-    floatBtn.className = "pwa-smart-install-btn fixed bottom-20 lg:bottom-6 right-5 z-40 bg-zinc-900 hover:bg-emerald-700 text-white border border-zinc-700 px-4 py-2.5 rounded-full text-xs font-extrabold shadow-2xl cursor-pointer items-center gap-2";
-    floatBtn.style.setProperty("display", "inline-flex", "important");
-    floatBtn.innerHTML = `<i class="fa-solid fa-mobile-screen-button text-emerald-400 text-sm"></i> <span>Install App</span>`;
-    document.body.appendChild(floatBtn);
-  }
-}
+setInterval(window.renderPWAInstallButtons, 1000);
 
-injectSmartPWAInstallButtons();
-window.addEventListener("DOMContentLoaded", injectSmartPWAInstallButtons);
-setTimeout(injectSmartPWAInstallButtons, 500);
-setTimeout(injectSmartPWAInstallButtons, 1500);
+// ============================================================================
+// 7. 🎨 CUSTOM UI POPUP & ANIMATION ENGINE
+// ============================================================================
+(function initCustomSaaSUI() {
+  if (document.getElementById("saasGlobalAnimations")) return;
+  const style = document.createElement("style");
+  style.id = "saasGlobalAnimations";
+  style.innerHTML = `
+    @keyframes saasSlideUpFade { 0% { opacity: 0; transform: translateY(14px); } 100% { opacity: 1; transform: translateY(0); } }
+    @keyframes saasModalSpring { 0% { opacity: 0; transform: scale(0.90) translateY(14px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
+    [id^="view-"]:not(.hidden), [id^="stuView-"]:not(.hidden), [id^="wardenView-"]:not(.hidden), [id^="masterView-"]:not(.hidden) { animation: saasSlideUpFade 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    #customSaaSAlertModal:not(.hidden) > div, #hostelRulesImgModal:not(.hidden) > div { animation: saasModalSpring 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+  `;
+  document.head.appendChild(style);
+
+  window.showSaaSPopup = function(rawMsg) {
+    let modal = document.getElementById("customSaaSAlertModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "customSaaSAlertModal";
+      modal.className = "fixed inset-0 bg-zinc-950/75 backdrop-blur-xs hidden items-center justify-center z-[9999] p-4";
+      document.body.appendChild(modal);
+    }
+    const msg = String(rawMsg || "").trim();
+    const isError = msg.includes("❌") || /invalid|incorrect|denied|error|failed|full/i.test(msg);
+    const isWarn  = msg.includes("⚠️") || /warning|wait|please/i.test(msg);
+    const cleanText = msg.replace(/^[✅❌⚠️🎉🗑️📲]+\s*/, "");
+    const lines = cleanText.split("\n").filter(l => l.trim() !== "");
+    const headline = lines[0] || (isError ? "Action Blocked" : isWarn ? "System Notice" : "Confirmed");
+    const bodyLines = lines.slice(1);
+    const badgeBg = isError ? "bg-rose-600 text-white" : isWarn ? "bg-amber-500 text-zinc-950" : "bg-emerald-600 text-white";
+    const iconHtml = isError ? `<i class="fa-solid fa-shield-xmark"></i>` : isWarn ? `<i class="fa-solid fa-triangle-exclamation"></i>` : `<i class="fa-solid fa-circle-check"></i>`;
+
+    modal.innerHTML = `
+      <div class="bg-white border border-zinc-200 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 text-zinc-900">
+        <div class="flex items-start gap-3.5 border-b border-zinc-100 pb-4">
+          <div class="w-11 h-11 rounded-xl ${badgeBg} flex items-center justify-center text-lg font-bold shrink-0">${iconHtml}</div>
+          <div class="min-w-0 flex-1">
+            <h3 class="text-sm sm:text-base font-extrabold text-zinc-900 leading-snug break-words">${headline}</h3>
+          </div>
+          <button type="button" onclick="closeSaaSPopup()" class="text-zinc-400 hover:text-zinc-800 text-xl leading-none">&times;</button>
+        </div>
+        ${bodyLines.length > 0 ? `<div class="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-1 text-xs text-zinc-700 font-medium">${bodyLines.map(l => `<div>${l}</div>`).join("")}</div>` : ""}
+        <button type="button" onclick="closeSaaSPopup()" class="w-full ${isError ? 'bg-rose-600 hover:bg-rose-500' : 'bg-zinc-900 hover:bg-zinc-800'} text-white py-3 rounded-xl text-xs font-extrabold uppercase tracking-wider cursor-pointer">Continue →</button>
+      </div>
+    `;
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    modal.style.setProperty("display", "flex", "important");
+  };
+
+  window.closeSaaSPopup = function() {
+    const modal = document.getElementById("customSaaSAlertModal");
+    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); modal.style.setProperty("display", "none", "important"); }
+  };
+
+  window.alert = function(message) { window.showSaaSPopup(message); };
+})();
