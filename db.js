@@ -495,29 +495,62 @@ function setupPWAManifestAndSW() {
   showInstallButtons();
 }
 
-function showInstallButtons() {
-  // 1. Top Header Right Corner (Public, Student, Admin, Warden)
-  const headerRight = document.querySelector("header .flex.items-center.gap-2, header .flex.items-center.gap-1\\.5");
-  if (headerRight && !document.getElementById("pwaHeaderInstallBtn")) {
+// ============================================================================
+// 📲 100% GUARANTEED MOBILE APP INSTALL BUTTON ENGINE
+// Paste at the very bottom of db.js
+// ============================================================================
+window.deferredPWAPrompt = window.deferredPWAPrompt || null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  window.deferredPWAPrompt = e;
+});
+
+window.installHostelPWA = async function() {
+  if (window.deferredPWAPrompt) {
+    window.deferredPWAPrompt.prompt();
+    const { outcome } = await window.deferredPWAPrompt.userChoice;
+    if (outcome === "accepted") window.deferredPWAPrompt = null;
+  } else {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      alert("📲 Install on iPhone:\n1. Tap 'Share' (⬆️) at the bottom of Safari.\n2. Tap 'Add to Home Screen (➕)'.\n3. Tap 'Add'!");
+    } else {
+      alert("📲 Install Mobile App:\n1. Tap the browser menu (⋮) at top-right.\n2. Tap 'Install App' or 'Add to Home Screen'!");
+    }
+  }
+};
+
+function injectPWAInstallButtonsNow() {
+  // 1. Add inside Top Header of Every Page (Public, Student, Admin, Warden)
+  const headerContainer = document.querySelector("header > div, header");
+  if (headerContainer && !document.getElementById("pwaTopInstallBtn")) {
+    const lastDiv = headerContainer.lastElementChild;
     const btn = document.createElement("button");
-    btn.id = "pwaHeaderInstallBtn";
+    btn.id = "pwaTopInstallBtn";
     btn.type = "button";
     btn.onclick = window.installHostelPWA;
-    btn.className = "bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0";
-    btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button mr-1"></i> Install App`;
-    headerRight.insertBefore(btn, headerRight.firstChild);
+    btn.className = "bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 shadow-xs flex items-center gap-1.5";
+    btn.innerHTML = `<i class="fa-solid fa-download"></i> <span>Install App</span>`;
+    if (lastDiv) lastDiv.insertBefore(btn, lastDiv.firstChild);
   }
 
-  // 2. Inside Login Popups (Admin, Student & Warden Login Screens)
-  ["#studentLoginGate", "#adminLoginGate", "#wardenLoginGate"].forEach(gateSel => {
-    const gateCard = document.querySelector(`${gateSel} > div`);
-    if (gateCard && !gateCard.querySelector(".pwa-login-install-btn")) {
-      const loginInstallBtn = document.createElement("button");
-      loginInstallBtn.type = "button";
-      loginInstallBtn.onclick = window.installHostelPWA;
-      loginInstallBtn.className = "pwa-login-install-btn w-full bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center justify-center gap-2";
-      loginInstallBtn.innerHTML = `<i class="fa-solid fa-download"></i> Install Mobile App on Phone`;
-      gateCard.appendChild(loginInstallBtn);
+  // 2. Add Inside Login Popups (Admin, Student, Warden, Master)
+  ["#studentLoginGate", "#adminLoginGate", "#wardenLoginGate", "#masterLoginGate"].forEach(sel => {
+    const card = document.querySelector(`${sel} > div`);
+    if (card && !card.querySelector(".pwa-login-btn")) {
+      const lBtn = document.createElement("button");
+      lBtn.type = "button";
+      lBtn.onclick = window.installHostelPWA;
+      lBtn.className = "pwa-login-btn w-full bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 py-2.5 px-4 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center justify-center gap-2 mt-2";
+      lBtn.innerHTML = `<i class="fa-solid fa-mobile-screen-button"></i> Install Mobile App on Phone`;
+      card.appendChild(lBtn);
     }
   });
 }
+
+// Run immediately + after 500ms + after 1500ms so it NEVER misses!
+injectPWAInstallButtonsNow();
+window.addEventListener("DOMContentLoaded", injectPWAInstallButtonsNow);
+setTimeout(injectPWAInstallButtonsNow, 500);
+setTimeout(injectPWAInstallButtonsNow, 1500);
