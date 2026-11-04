@@ -38,15 +38,17 @@ const emptyDB = {
 };
 
 // ============================================================================
-// 1. MULTI-TENANT SAAS ENGINE & INSTANT CLOUD SYNC
+// 1. MULTI-TENANT SAAS ENGINE & BULLETPROOF FIRESTORE SYNC
 // ============================================================================
 const urlParams = new URLSearchParams(window.location.search);
 const TENANT_ID = (urlParams.get("hostel") || localStorage.getItem("SAAS_TENANT_ID") || "main_hostel").toLowerCase().replace(/[^a-z0-9_-]/g, "");
 try { localStorage.setItem("SAAS_TENANT_ID", TENANT_ID); } catch (e) {}
 
 const DB_KEY = "HOSTEL_SAAS_DB_" + TENANT_ID;
+const UNSYNCED_KEY = "HOSTEL_UNSYNCED_" + TENANT_ID;
 let cloudDocRef = null;
 let isSavingToCloud = false;
+let authReadyPromise = null;
 
 window.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("a[href]").forEach(link => {
@@ -57,7 +59,6 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// Listen for cross-tab localStorage updates immediately
 window.addEventListener("storage", (e) => {
   if (!e.key || e.key === DB_KEY) {
     refreshCurrentPortalUI();
@@ -76,6 +77,32 @@ function getCloudDocRef() {
   return cloudDocRef;
 }
 
+// Smart Merge: Never let an older cloud snapshot erase local applications, students, or rooms!
+function mergeLocalAndCloud(localDB, cloudDB) {
+  const merged = { ...cloudDB };
+  const mergeById = (localArr = [], cloudArr = [], idKey = "id") => {
+    const map = new Map();
+    // Put local items first so newer local edits/statuses win if unsynced
+    localArr.forEach(item => { if (item && item[idKey]) map.set(String(item[idKey]), item); });
+    cloudArr.forEach(item => {
+      if (item && item[idKey] && !map.has(String(item[idKey]))) {
+        map.set(String(item[idKey]), item);
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  merged.applications = mergeById(localDB.applications, cloudDB.applications, "id");
+  merged.students     = mergeById(localDB.students, cloudDB.students, "id");
+  merged.rooms        = mergeById(localDB.rooms, cloudDB.rooms, "no");
+  merged.expenses     = mergeById(localDB.expenses, cloudDB.expenses, "id");
+  merged.complaints   = mergeById(localDB.complaints, cloudDB.complaints, "id");
+  merged.leaves       = mergeById(localDB.leaves, cloudDB.leaves, "id");
+  merged.staff        = mergeById(localDB.staff, cloudDB.staff, "id");
+  merged.inventory    = mergeById(localDB.inventory, cloudDB.inventory, "id");
+  return merged;
+}
+
 function startFirestoreListener() {
   try {
     const firestore = firebase.firestore();
@@ -88,10 +115,12 @@ function startFirestoreListener() {
 
     cloudDocRef = firestore.collection("hostel_system").doc(TENANT_ID);
     cloudDocRef.onSnapshot((docSnap) => {
-      if (isSavingToCloud) return; // Prevent race-condition overwrite while saving
+      if (isSavingToCloud) return;
+
+      const hasUnsynced = localStorage.getItem(UNSYNCED_KEY) === "true";
 
       if (docSnap.exists) {
-        const cloudData = docSnap.data();
+        let cloudData = docSnap.data();
         cloudData.settings = cloudData.settings || {};
 
         if (cloudData.settings.isSuspended === true && !isMasterPage()) {
@@ -106,34 +135,26 @@ function startFirestoreListener() {
           return;
         }
 
-        // Smart Merge: Preserve any locally submitted application that hasn't synced to cloud yet
-        try {
-          const localRaw = localStorage.getItem(DB_KEY);
-          if (localRaw) {
-            const localData = JSON.parse(localRaw);
-            const localApps = localData.applications || [];
-            const cloudApps = cloudData.applications || [];
-            const cloudAppIds = new Set(cloudApps.map(a => String(a.id)));
-            localApps.forEach(la => {
-              if (la && la.id && !cloudAppIds.has(String(la.id)) && la.status === "Pending") {
-                cloudApps.unshift(la);
-              }
-            });
-            cloudData.applications = cloudApps;
-          }
-        } catch (mergeErr) {}
+        const localDB = getDB();
+        const localTimestamp = Number(localDB._lastUpdated || 0);
+        const cloudTimestamp = Number(cloudData._lastUpdated || 0);
 
-        try { localStorage.setItem(DB_KEY, JSON.stringify(cloudData)); } catch (e) {
-          console.warn("LocalStorage quota warning:", e);
+        // If local DB has newer unsynced changes (e.g. just submitted & reloaded), merge and push to Cloud!
+        if (hasUnsynced || localTimestamp > cloudTimestamp) {
+          cloudData = mergeLocalAndCloud(localDB, cloudData);
+          cloudData._lastUpdated = Math.max(localTimestamp, cloudTimestamp, Date.now());
+          pushDBToCloudNow(cloudData);
         }
+
+        try { localStorage.setItem(DB_KEY, JSON.stringify(cloudData)); } catch (e) {}
         refreshCurrentPortalUI();
       } else {
-        // Document doesn't exist in Firestore yet — push current local DB to initialize cloud!
+        // Cloud doc doesn't exist yet -> push local DB to create it
         const initialLocal = getDB();
-        cloudDocRef.set(initialLocal).catch(() => {});
+        pushDBToCloudNow(initialLocal);
       }
     }, (err) => {
-      console.error("Firestore Sync Error:", err);
+      console.error("Firestore Listener Error:", err);
     });
   } catch (err) {
     console.error("Firestore Init Error:", err);
@@ -144,42 +165,40 @@ function initSecureFirebase() {
   if (typeof firebase === "undefined") return;
   if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 
-  // Immediately initialize cloudDocRef so saveDB never misses a write!
   getCloudDocRef();
 
-  const connectWithAuth = () => {
-    let started = false;
-    // Start listener immediately, and also re-bind if auth state changes
-    startFirestoreListener();
-    started = true;
-
+  authReadyPromise = new Promise((resolve) => {
     if (typeof firebase.auth === "function") {
       firebase.auth().onAuthStateChanged((user) => {
-        if (!user) {
-          firebase.auth().signInAnonymously().catch(() => {});
-        } else if (!started) {
-          started = true;
-          startFirestoreListener();
+        if (user) {
+          resolve(user);
+        } else {
+          firebase.auth().signInAnonymously()
+            .then((cred) => resolve(cred.user))
+            .catch((err) => {
+              console.warn("Anonymous Auth not enabled or failed, proceeding without auth:", err.message);
+              resolve(null);
+            });
         }
       });
+    } else {
+      resolve(null);
     }
-  };
+  });
 
-  if (typeof firebase.auth === "function") {
-    connectWithAuth();
-  } else {
-    const authScript = document.createElement("script");
-    authScript.src = "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js";
-    authScript.onload = connectWithAuth;
-    authScript.onerror = () => startFirestoreListener();
-    document.head.appendChild(authScript);
-  }
+  authReadyPromise.then(() => {
+    startFirestoreListener();
+    // If any data was saved while offline or before auth completed, push it now!
+    if (localStorage.getItem(UNSYNCED_KEY) === "true") {
+      pushDBToCloudNow(getDB());
+    }
+  });
 }
 
 initSecureFirebase();
 
 // ============================================================================
-// 2. CORE DATABASE HELPERS & ACCURATE LIVE METRICS
+// 2. CORE DATABASE HELPERS & GUARANTEED CLOUD WRITE
 // ============================================================================
 function refreshCurrentPortalUI() {
   if (typeof renderAdminAll === "function") renderAdminAll();
@@ -213,7 +232,46 @@ function getDB() {
   }
 }
 
+// Guard against Firestore 1MB document limit
+function ensureFirestoreSizeLimit(db) {
+  let jsonStr = JSON.stringify(db);
+  if (jsonStr.length > 900000) {
+    console.warn("DB size approaching 1MB Firestore limit. Compressing old logs & approved app CNICs...");
+    db.logs = (db.logs || []).slice(0, 15);
+    (db.applications || []).forEach(a => {
+      if (a.status === "Approved" || a.status === "Rejected") {
+        delete a.cnicFront;
+        delete a.cnicBack;
+      }
+    });
+  }
+  return db;
+}
+
+async function pushDBToCloudNow(dbToPush) {
+  const ref = getCloudDocRef();
+  if (!ref) return false;
+
+  try {
+    isSavingToCloud = true;
+    if (authReadyPromise) await authReadyPromise;
+    const cleanDB = ensureFirestoreSizeLimit(dbToPush);
+    await ref.set(cleanDB);
+    localStorage.setItem(UNSYNCED_KEY, "false");
+    isSavingToCloud = false;
+    return true;
+  } catch (err) {
+    isSavingToCloud = false;
+    console.error("🔥 FIRESTORE WRITE FAILED:", err);
+    if (err && err.code === "permission-denied") {
+      console.error("⚠️ Firebase Firestore Rules are blocking writes! Go to Firebase Console -> Firestore Database -> Rules and allow read, write.");
+    }
+    return false;
+  }
+}
+
 function saveDB(db, actionText, actor = "Admin") {
+  db._lastUpdated = Date.now();
   if (actionText) {
     db.logs = db.logs || [];
     db.logs.unshift({
@@ -221,30 +279,21 @@ function saveDB(db, actionText, actor = "Admin") {
       actor,
       action: actionText
     });
-    if (db.logs.length > 60) db.logs = db.logs.slice(0, 60); // Keep logs compact
+    if (db.logs.length > 50) db.logs = db.logs.slice(0, 50);
   }
+
+  // Mark as unsynced until Firestore confirms the write!
+  try { localStorage.setItem(UNSYNCED_KEY, "true"); } catch (e) {}
 
   try {
     localStorage.setItem(DB_KEY, JSON.stringify(db));
   } catch (e) {
-    console.warn("LocalStorage full, trimming old logs...", e);
-    db.logs = (db.logs || []).slice(0, 15);
+    db.logs = (db.logs || []).slice(0, 10);
     try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (err2) {}
   }
 
-  const ref = getCloudDocRef();
-  if (ref) {
-    isSavingToCloud = true;
-    ref.set(db)
-      .then(() => {
-        isSavingToCloud = false;
-      })
-      .catch(err => {
-        isSavingToCloud = false;
-        console.error("Cloud Sync Error:", err);
-      });
-  }
   refreshCurrentPortalUI();
+  return pushDBToCloudNow(db);
 }
 
 function wipeAllData() {
