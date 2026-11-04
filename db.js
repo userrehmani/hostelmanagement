@@ -417,3 +417,97 @@ db.settings.currentMonth = monthName;
 
 // Run automatic 5th date fine check on load
 setTimeout(checkAndApplyAutoLateFine, 1500);
+// ============================================================================
+// 📲 MOBILE APP (PWA) INSTALLER ENGINE (Auto-Manifest + Install Button!)
+// Paste at the very bottom of db.js
+// ============================================================================
+let deferredInstallPrompt = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  showInstallButtons();
+});
+
+window.installHostelPWA = async function() {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    if (outcome === "accepted") {
+      deferredInstallPrompt = null;
+    }
+  } else {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      alert("📲 Install on iPhone / iPad:\n1. Tap the 'Share' button (⬆️) at the bottom of Safari.\n2. Scroll down and tap 'Add to Home Screen (➕)'.\n3. Tap 'Add' in the top corner!");
+    } else {
+      alert("📲 Install Mobile App:\n1. Tap the browser menu (⋮) at the top-right corner of Chrome.\n2. Tap 'Install App' or 'Add to Home Screen'!");
+    }
+  }
+};
+
+function setupPWAManifestAndSW() {
+  const db = getDB();
+  const appName = (db.settings && db.settings.hostelName) || "Hostel Cloud ERP";
+  const logoUrl = (db.settings && db.settings.logo) ? db.settings.logo : (window.location.origin + "/logo.png");
+
+  // 1. Inject Mobile Web-App Meta Tags
+  if (!document.getElementById("pwaMetaTheme")) {
+    const meta = document.createElement("div");
+    meta.id = "pwaMetaTheme";
+    meta.innerHTML = `
+      <meta name="theme-color" content="#18181b" />
+      <meta name="apple-mobile-web-app-capable" content="yes" />
+      <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+      <meta name="apple-mobile-web-app-title" content="${appName}" />
+      <link rel="apple-touch-icon" href="${logoUrl}" />
+    `;
+    document.head.appendChild(meta);
+  }
+
+  // 2. Dynamically Generate Manifest JSON
+  const manifestObj = {
+    name: appName,
+    short_name: appName.slice(0, 15),
+    start_url: window.location.href,
+    display: "standalone",
+    background_color: "#18181b",
+    theme_color: "#18181b",
+    icons: [
+      { src: logoUrl, sizes: "192x192", type: "image/png" },
+      { src: logoUrl, sizes: "512x512", type: "image/png" }
+    ]
+  };
+  const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: "application/json" });
+  let linkEl = document.querySelector("link[rel='manifest']");
+  if (!linkEl) {
+    linkEl = document.createElement("link");
+    linkEl.rel = "manifest";
+    document.head.appendChild(linkEl);
+  }
+  linkEl.href = URL.createObjectURL(manifestBlob);
+
+  // 3. Register Service Worker (sw.js)
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+
+  showInstallButtons();
+}
+
+function showInstallButtons() {
+  // Inject "📲 Install App" button into Top Headers of Public, Student, Admin & Warden portals
+  const headerRight = document.querySelector("header .flex.items-center.gap-2, header .flex.items-center.gap-1\\.5");
+  if (headerRight && !document.getElementById("pwaHeaderInstallBtn")) {
+    const btn = document.createElement("button");
+    btn.id = "pwaHeaderInstallBtn";
+    btn.type = "button";
+    btn.onclick = window.installHostelPWA;
+    btn.className = "bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0";
+    btn.title = "Install Hostel App on Mobile / PC";
+    btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button sm:mr-1"></i> <span class="hidden sm:inline">Install App</span>`;
+    headerRight.insertBefore(btn, headerRight.firstChild);
+  }
+}
+
+window.addEventListener("DOMContentLoaded", setupPWAManifestAndSW);
