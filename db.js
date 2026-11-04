@@ -61,6 +61,7 @@ const PAGE_STARTED_AT = new Date().toISOString();
 
 let _fs = null;
 let _cloudStarted = false;
+let _authPromise = null;
 
 function fsDB() {
   if (_fs) return _fs;
@@ -85,37 +86,47 @@ function isAdminPage() {
 }
 
 // ============================================================================
-// 2. CLOUD INIT & LISTENERS
+// 2. AUTH & CLOUD INIT
 // ============================================================================
-function initCloud() {
-  if (typeof firebase === "undefined") return;
-  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-
-  const start = () => {
-    if (_cloudStarted) return;
-    _cloudStarted = true;
-    startMainListener();
-    startApplicationsListener();
-  };
-
-  if (typeof firebase.auth === "function") {
+// Resolves with the signed-in user (anonymous is fine), or null if auth is unavailable.
+function authReady() {
+  if (_authPromise) return _authPromise;
+  _authPromise = new Promise(resolve => {
+    if (typeof firebase === "undefined" || typeof firebase.auth !== "function") return resolve(null);
     firebase.auth().onAuthStateChanged(user => {
-      if (!user) firebase.auth().signInAnonymously().catch(() => {});
-      else start();
+      if (user) return resolve(user);
+      firebase.auth().signInAnonymously().catch(err => {
+        console.error("Anonymous sign-in failed. Enable it in Firebase Console > Authentication > Sign-in method:", err);
+        resolve(null);
+      });
     });
-    setTimeout(start, 3000); // fallback if anonymous auth is not enabled
-  } else {
-    start();
-  }
+  });
+  return _authPromise;
 }
 
-function waitForCloud(timeout = 8000) {
+function waitForCloud(timeout = 10000) {
   return new Promise(resolve => {
     const t0 = Date.now();
     (function poll() {
       if (fsDB() || Date.now() - t0 > timeout) return resolve(!!fsDB());
       setTimeout(poll, 200);
     })();
+  });
+}
+
+function initCloud() {
+  if (typeof firebase === "undefined") {
+    console.error("Firebase SDK not loaded. Check the <script> tags in the HTML.");
+    return;
+  }
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+
+  authReady().then(user => {
+    if (!user) console.error("Cloud listeners not started: no auth user.");
+    if (_cloudStarted) return;
+    _cloudStarted = true;
+    startMainListener();
+    startApplicationsListener();
   });
 }
 
@@ -133,11 +144,11 @@ function showSuspendedScreen(name) {
 function startMainListener() {
   const ref = mainRef();
   if (!ref) return;
-  let first = true;
 
   ref.onSnapshot(snap => {
     if (!snap.exists) {
-      if (!isMasterPage()) ref.set(JSON.parse(JSON.stringify(stripApps(getDB())))).catch(() => {});
+      // First run: create the tenant document from local defaults (no applications, they live in their own collection)
+      if (!isMasterPage()) ref.set(JSON.parse(JSON.stringify(stripApps(getDB())))).catch(err => console.error("Init write failed:", err));
       return;
     }
     const cloud = snap.data() || {};
@@ -149,23 +160,19 @@ function startMainListener() {
 
     // Old format: applications stored inside the main document. Move them to the subcollection once.
     if (Array.isArray(cloud.applications) && cloud.applications.length && !isMasterPage()) {
-      migrateOldApplications(ref, cloud.applications);
+      migrateOldApplications(cloud.applications);
     }
 
-    const current = getDB();
-    cacheWrite({ ...cloud, applications: current.applications });
+    // Keep the applications list we already have locally. The applications listener owns that list.
+    cacheWrite({ ...cloud, applications: getDB().applications });
     refreshCurrentPortalUI();
-
-    if (first) {
-      first = false;
-      if (isAdminPage()) setTimeout(checkAndApplyAutoLateFine, 1500);
-    }
-  }, err => console.error("Firestore sync error:", err));
+  }, err => console.error("Main document sync error:", err));
 }
 
 function startApplicationsListener() {
   const col = appsRef();
   if (!col) return;
+
   col.onSnapshot(snap => {
     const list = snap.docs.map(d => normalizeApp({ ...d.data(), id: d.id }));
     list.sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")));
@@ -174,7 +181,7 @@ function startApplicationsListener() {
     db.applications = list;
     cacheWrite(db);
 
-    // Notify admin about applications that arrived after this page was opened
+    // Admin notification for applications that arrived after this page was opened
     if (isAdminPage()) {
       snap.docChanges().forEach(ch => {
         if (ch.type !== "added") return;
@@ -185,23 +192,20 @@ function startApplicationsListener() {
       });
     }
     refreshCurrentPortalUI();
-  }, err => console.error("Applications sync error:", err));
+  }, err => console.error("Applications sync error (check Firestore rules and sign-in):", err));
 }
 
-function migrateOldApplications(ref, list) {
+function migrateOldApplications(list) {
   const col = appsRef();
-  if (!col) return;
-  try {
-    const batch = fsDB().batch();
-    list.forEach((a, i) => {
-      const id = String(a.id || a.appId || ("APP-MIG-" + Date.now().toString(36) + i));
-      batch.set(col.doc(id), normalizeApp({ ...a, id }), { merge: true });
-    });
-    batch.update(ref, { applications: firebase.firestore.FieldValue.delete() });
-    batch.commit().catch(err => console.error("Migration failed:", err));
-  } catch (err) {
-    console.error("Migration error:", err);
-  }
+  const ref = mainRef();
+  if (!col || !ref) return;
+  const batch = fsDB().batch();
+  list.forEach((a, i) => {
+    const id = String(a.id || a.appId || ("APP-MIG-" + Date.now().toString(36) + i));
+    batch.set(col.doc(id), normalizeApp({ ...a, id }), { merge: true });
+  });
+  batch.update(ref, { applications: firebase.firestore.FieldValue.delete() });
+  batch.commit().catch(err => console.error("Migration failed:", err));
 }
 
 // ============================================================================
@@ -266,8 +270,11 @@ function saveDB(db, actionText, actor = "Admin") {
 
   const ref = mainRef();
   if (ref) {
-    ref.set(JSON.parse(JSON.stringify(stripApps(db))))
-      .catch(err => console.error("Cloud save error:", err));
+    authReady().then(user => {
+      if (!user) return;
+      ref.set(JSON.parse(JSON.stringify(stripApps(db))))
+        .catch(err => console.error("Cloud save error:", err));
+    });
   }
   refreshCurrentPortalUI();
 }
@@ -284,38 +291,47 @@ window.addEventListener("storage", e => {
 });
 
 // ============================================================================
-// 4. APPLICATIONS (separate collection, no overwrite conflicts)
+// 4. APPLICATIONS (separate collection, cloud-first writes)
 // ============================================================================
+// Writes to the cloud first. The local cache is updated only after the cloud confirms,
+// so the user never sees "submitted" for a record that did not reach the server.
 async function submitApplication(app) {
+  await waitForCloud();
+  const user = await authReady();
+  if (!user) throw new Error("AUTH_FAILED: Anonymous sign-in is not enabled or failed.");
+  const col = appsRef();
+  if (!col) throw new Error("DB_NOT_READY: Firestore did not initialise.");
+
+  await col.doc(app.id).set(JSON.parse(JSON.stringify(app)));
+
   const db = getDB();
   db.applications = [normalizeApp(app), ...db.applications.filter(a => a.id !== app.id)];
   cacheWrite(db);
   refreshCurrentPortalUI();
+}
 
-  await waitForCloud();
+async function updateApplicationRemote(id, patch) {
+  await authReady();
   const col = appsRef();
-  if (col) {
-    col.doc(app.id).set(JSON.parse(JSON.stringify(app)))
-      .catch(err => console.error("Application write failed:", err));
+  if (!col) return;
+  try {
+    await col.doc(id).update(patch);
+  } catch (err) {
+    console.error("Application update failed:", err);
+    alert("❌ Could not update the application in the cloud. Please try again.");
   }
 }
 
-function updateApplicationRemote(id, patch) {
+async function deleteApplicationRemote(id) {
+  await authReady();
   const col = appsRef();
-  if (col) col.doc(id).update(patch).catch(err => console.error("Application update failed:", err));
-}
-
-function deleteApplicationRemote(id) {
-  const col = appsRef();
-  if (col) col.doc(id).delete().catch(err => console.error("Application delete failed:", err));
-}
-
-function setApplicationStatus(id, status) {
-  const db = getDB();
-  const a = db.applications.find(x => x.id === id);
-  if (a) { a.status = status; cacheWrite(db); }
-  updateApplicationRemote(id, { status });
-  refreshCurrentPortalUI();
+  if (!col) return;
+  try {
+    await col.doc(id).delete();
+  } catch (err) {
+    console.error("Application delete failed:", err);
+    alert("❌ Could not delete the application in the cloud. Please try again.");
+  }
 }
 
 // ============================================================================
@@ -354,8 +370,20 @@ function getLiveMetrics() {
 }
 
 // ============================================================================
-// 6. LOGIN (Admin / Warden / Student gates)
+// 6. LOGIN (Admin / Warden) & PORTAL GATE HELPERS
 // ============================================================================
+async function refreshFromCloudOnce() {
+  await authReady();
+  const ref = mainRef();
+  if (!ref) return;
+  try {
+    const snap = await ref.get();
+    if (snap.exists) cacheWrite({ ...snap.data(), applications: getDB().applications });
+  } catch (err) {
+    console.error("Cloud read failed (login will use local cache):", err);
+  }
+}
+
 async function verifyAdminLogin(e) {
   if (e) e.preventDefault();
   const email = (document.getElementById("adminEmailInput")?.value || "").trim().toLowerCase();
@@ -402,16 +430,7 @@ async function handleWardenLogin(e) {
   }
 }
 
-async function refreshFromCloudOnce() {
-  const ref = mainRef();
-  if (!ref) return;
-  try {
-    const snap = await ref.get();
-    if (snap.exists) cacheWrite({ ...snap.data(), applications: getDB().applications });
-  } catch (err) {}
-}
-
-// Adds email/password fields to student & warden gates if those pages don't already have them
+// Adds email/password fields to warden & student gates if those pages don't already have them
 function upgradePortalLoginGates() {
   const wardenForm = document.querySelector("#wardenLoginGate form");
   if (wardenForm && !document.getElementById("wardenEmailInput")) {
@@ -880,8 +899,11 @@ function wipeAllData() {
   delete fresh.settings.liveNotice;
   saveDB(fresh, "Factory reset of hostel data", "Admin");
   const col = appsRef();
-  if (col) col.get().then(snap => snap.docs.forEach(d => d.ref.delete())).catch(() => {});
-  setTimeout(() => location.reload(), 600);
+  if (col) {
+    authReady().then(() => col.get()).then(snap => Promise.all(snap.docs.map(d => d.ref.delete())))
+      .catch(err => console.error("Wipe applications failed:", err));
+  }
+  setTimeout(() => location.reload(), 800);
 }
 
 function exportHostelBackupJSON() {
