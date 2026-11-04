@@ -1088,15 +1088,11 @@ function applyBrandLogoEverywhere() {
   });
 }
 
-// ============================================================================
-// 6. 📲 SMART PWA MOBILE APP INSTALLER (Auto-Hides When Installed, Reappears When Uninstalled!)
-// ============================================================================
 let deferredInstallPrompt = null;
 
 function isAppCurrentlyInstalled() {
   return window.matchMedia("(display-mode: standalone)").matches ||
-         window.navigator.standalone === true ||
-         localStorage.getItem("PWA_INSTALLED_FLAG") === "true";
+         window.navigator.standalone === true;
 }
 
 function setInstallButtonsVisibility(show) {
@@ -1111,19 +1107,15 @@ function setInstallButtonsVisibility(show) {
   });
 }
 
-// When browser fires beforeinstallprompt, it means the app is NOT installed (or was uninstalled!)
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  try { localStorage.removeItem("PWA_INSTALLED_FLAG"); } catch (err) {}
   injectSmartPWAInstallButtons();
   setInstallButtonsVisibility(true);
 });
 
-// When app is installed, immediately hide the Install buttons!
 window.addEventListener("appinstalled", () => {
   deferredInstallPrompt = null;
-  try { localStorage.setItem("PWA_INSTALLED_FLAG", "true"); } catch (err) {}
   setInstallButtonsVisibility(false);
 });
 
@@ -1133,144 +1125,70 @@ window.installHostelPWA = async function() {
     const { outcome } = await deferredInstallPrompt.userChoice;
     if (outcome === "accepted") {
       deferredInstallPrompt = null;
-      try { localStorage.setItem("PWA_INSTALLED_FLAG", "true"); } catch (err) {}
       setInstallButtonsVisibility(false);
     }
   } else {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     if (isIOS) {
-      alert("📲 Install on iPhone:\n1. Tap 'Share' (⬆️) at the bottom of Safari.\n2. Tap 'Add to Home Screen (➕)'.\n3. Tap 'Add'!");
+      alert("📲 Install on iPhone:\n1. Tap 'Share' (⬆️) at the bottom of Safari.\n2. Scroll down and tap 'Add to Home Screen (➕)'.\n3. Tap 'Add'!");
     } else {
-      alert("📲 Install Mobile App:\n1. Tap the browser menu (⋮) at top-right.\n2. Tap 'Install App' or 'Add to Home Screen'!");
+      alert("📲 Install App on Phone / PC:\n1. Tap the browser menu (⋮) at the top-right corner of Chrome.\n2. Tap 'Install App' or 'Add to Home Screen'!");
     }
   }
 };
 
 function injectSmartPWAInstallButtons() {
-  const db = getDB();
-  const appName = (db.settings && db.settings.hostelName) || "Hostel Cloud ERP";
-  const logoUrl = (db.settings && db.settings.logo) ? db.settings.logo : (window.location.origin + "/logo.png");
-
-  if (!document.getElementById("pwaMetaTheme")) {
-    const meta = document.createElement("div");
-    meta.id = "pwaMetaTheme";
-    meta.innerHTML = `
-      <meta name="theme-color" content="#18181b" />
-      <meta name="apple-mobile-web-app-capable" content="yes" />
-      <link rel="apple-touch-icon" href="${logoUrl}" />
-    `;
-    document.head.appendChild(meta);
-
-    const manifestObj = {
-      name: appName,
-      short_name: appName.slice(0, 15),
-      start_url: window.location.href,
-      display: "standalone",
-      background_color: "#18181b",
-      theme_color: "#18181b",
-      icons: [
-        { src: logoUrl, sizes: "192x192", type: "image/png" },
-        { src: logoUrl, sizes: "512x512", type: "image/png" }
-      ]
-    };
-    const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: "application/json" });
-    let linkEl = document.querySelector("link[rel='manifest']");
-    if (!linkEl) { linkEl = document.createElement("link"); linkEl.rel = "manifest"; document.head.appendChild(linkEl); }
-    linkEl.href = URL.createObjectURL(manifestBlob);
-
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
-    }
+  if (isAppCurrentlyInstalled()) {
+    setInstallButtonsVisibility(false);
+    return;
   }
 
-  // 1. Top Header Button
-  const headerContainer = document.querySelector("header > div, header");
-  if (headerContainer && !document.getElementById("pwaTopInstallBtn")) {
-    const lastDiv = headerContainer.lastElementChild;
+  // 1. Put right next to Top Header Action Button on Public, Admin, Student & Warden
+  const topTargetBtn = document.querySelector(
+    "header button[onclick*='openAdmissionModal'], " +
+    "header button[onclick*='openMonthlyAuditPDF'], " +
+    "header button[onclick*='openStudentQRCard'], " +
+    "header button[onclick*='openWardenGateScanner']"
+  );
+
+  if (topTargetBtn && !document.getElementById("pwaTopInstallBtn")) {
     const btn = document.createElement("button");
     btn.id = "pwaTopInstallBtn";
     btn.type = "button";
     btn.onclick = window.installHostelPWA;
-    btn.className = "pwa-smart-install-btn bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 shadow-xs items-center gap-1.5";
-    btn.innerHTML = `<i class="fa-solid fa-download"></i> <span>Install App</span>`;
-    if (lastDiv) lastDiv.insertBefore(btn, lastDiv.firstChild);
+    btn.className = "pwa-smart-install-btn bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 shadow-xs items-center gap-1.5";
+    btn.style.setProperty("display", "inline-flex", "important");
+    btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button text-emerald-400"></i> <span>Install App</span>`;
+    topTargetBtn.insertAdjacentElement("beforebegin", btn);
   }
 
-  // 2. Login Popup Button
-  ["#studentLoginGate", "#adminLoginGate", "#wardenLoginGate", "#masterLoginGate"].forEach(sel => {
-    const card = document.querySelector(`${sel} > div`);
-    if (card && !card.querySelector(".pwa-smart-install-btn")) {
+  // 2. Put right below Submit Button inside All Login Popups
+  document.querySelectorAll("#studentLoginGate form, #adminLoginGate form, #wardenLoginGate form, #masterLoginGate form").forEach(form => {
+    if (!form.querySelector(".pwa-smart-install-btn")) {
       const lBtn = document.createElement("button");
       lBtn.type = "button";
       lBtn.onclick = window.installHostelPWA;
       lBtn.className = "pwa-smart-install-btn w-full bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 py-2.5 px-4 rounded-xl text-xs font-extrabold transition cursor-pointer items-center justify-center gap-2 mt-2";
-      lBtn.innerHTML = `<i class="fa-solid fa-mobile-screen-button"></i> Install Mobile App on Phone`;
-      card.appendChild(lBtn);
+      lBtn.style.setProperty("display", "inline-flex", "important");
+      lBtn.innerHTML = `<i class="fa-solid fa-download"></i> Install Mobile App`;
+      form.appendChild(lBtn);
     }
   });
 
-  // Hide if already installed, show if not installed
-  setInstallButtonsVisibility(!isAppCurrentlyInstalled());
+  // 3. Floating Bottom-Right "📲 Install App" Pill (Guaranteed Visible on Every Screen!)
+  if (!document.getElementById("pwaFloatingInstallBtn")) {
+    const floatBtn = document.createElement("button");
+    floatBtn.id = "pwaFloatingInstallBtn";
+    floatBtn.type = "button";
+    floatBtn.onclick = window.installHostelPWA;
+    floatBtn.className = "pwa-smart-install-btn fixed bottom-20 lg:bottom-6 right-5 z-40 bg-zinc-900 hover:bg-emerald-700 text-white border border-zinc-700 px-4 py-2.5 rounded-full text-xs font-extrabold shadow-2xl cursor-pointer items-center gap-2";
+    floatBtn.style.setProperty("display", "inline-flex", "important");
+    floatBtn.innerHTML = `<i class="fa-solid fa-mobile-screen-button text-emerald-400 text-sm"></i> <span>Install App</span>`;
+    document.body.appendChild(floatBtn);
+  }
 }
 
+injectSmartPWAInstallButtons();
 window.addEventListener("DOMContentLoaded", injectSmartPWAInstallButtons);
-setTimeout(injectSmartPWAInstallButtons, 600);
-
-// ============================================================================
-// 7. 🎨 CUSTOM UI POPUP & ANIMATION ENGINE
-// ============================================================================
-(function initCustomSaaSUI() {
-  if (document.getElementById("saasGlobalAnimations")) return;
-  const style = document.createElement("style");
-  style.id = "saasGlobalAnimations";
-  style.innerHTML = `
-    @keyframes saasSlideUpFade { 0% { opacity: 0; transform: translateY(14px); } 100% { opacity: 1; transform: translateY(0); } }
-    @keyframes saasModalSpring { 0% { opacity: 0; transform: scale(0.90) translateY(14px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
-    [id^="view-"]:not(.hidden), [id^="stuView-"]:not(.hidden), [id^="wardenView-"]:not(.hidden), [id^="masterView-"]:not(.hidden) { animation: saasSlideUpFade 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-    #customSaaSAlertModal:not(.hidden) > div, #hostelRulesImgModal:not(.hidden) > div { animation: saasModalSpring 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-  `;
-  document.head.appendChild(style);
-
-  window.showSaaSPopup = function(rawMsg) {
-    let modal = document.getElementById("customSaaSAlertModal");
-    if (!modal) {
-      modal = document.createElement("div");
-      modal.id = "customSaaSAlertModal";
-      modal.className = "fixed inset-0 bg-zinc-950/75 backdrop-blur-xs hidden items-center justify-center z-[9999] p-4";
-      document.body.appendChild(modal);
-    }
-    const msg = String(rawMsg || "").trim();
-    const isError = msg.includes("❌") || /invalid|incorrect|denied|error|failed|full/i.test(msg);
-    const isWarn  = msg.includes("⚠️") || /warning|wait|please/i.test(msg);
-    const cleanText = msg.replace(/^[✅❌⚠️🎉🗑️]+\s*/, "");
-    const lines = cleanText.split("\n").filter(l => l.trim() !== "");
-    const headline = lines[0] || (isError ? "Action Blocked" : isWarn ? "System Notice" : "Confirmed");
-    const bodyLines = lines.slice(1);
-    const badgeBg = isError ? "bg-rose-600 text-white" : isWarn ? "bg-amber-500 text-zinc-950" : "bg-emerald-600 text-white";
-    const iconHtml = isError ? `<i class="fa-solid fa-shield-xmark"></i>` : isWarn ? `<i class="fa-solid fa-triangle-exclamation"></i>` : `<i class="fa-solid fa-circle-check"></i>`;
-
-    modal.innerHTML = `
-      <div class="bg-white border border-zinc-200 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 text-zinc-900">
-        <div class="flex items-start gap-3.5 border-b border-zinc-100 pb-4">
-          <div class="w-11 h-11 rounded-xl ${badgeBg} flex items-center justify-center text-lg font-bold shrink-0">${iconHtml}</div>
-          <div class="min-w-0 flex-1">
-            <h3 class="text-sm sm:text-base font-extrabold text-zinc-900 leading-snug break-words">${headline}</h3>
-          </div>
-          <button type="button" onclick="closeSaaSPopup()" class="text-zinc-400 hover:text-zinc-800 text-xl leading-none">&times;</button>
-        </div>
-        ${bodyLines.length > 0 ? `<div class="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-1 text-xs text-zinc-700 font-medium">${bodyLines.map(l => `<div>${l}</div>`).join("")}</div>` : ""}
-        <button type="button" onclick="closeSaaSPopup()" class="w-full ${isError ? 'bg-rose-600 hover:bg-rose-500' : 'bg-zinc-900 hover:bg-zinc-800'} text-white py-3 rounded-xl text-xs font-extrabold uppercase tracking-wider cursor-pointer">Continue →</button>
-      </div>
-    `;
-    modal.classList.remove("hidden");
-    modal.classList.add("flex");
-    modal.style.setProperty("display", "flex", "important");
-  };
-
-  window.closeSaaSPopup = function() {
-    const modal = document.getElementById("customSaaSAlertModal");
-    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); modal.style.setProperty("display", "none", "important"); }
-  };
-
-  window.alert = function(message) { window.showSaaSPopup(message); };
-})();
+setTimeout(injectSmartPWAInstallButtons, 500);
+setTimeout(injectSmartPWAInstallButtons, 1500);
