@@ -496,18 +496,28 @@ function setupPWAManifestAndSW() {
 }
 
 function showInstallButtons() {
-  // Inject "📲 Install App" button into Top Headers of Public, Student, Admin & Warden portals
+  // 1. Top Header Right Corner (Public, Student, Admin, Warden)
   const headerRight = document.querySelector("header .flex.items-center.gap-2, header .flex.items-center.gap-1\\.5");
   if (headerRight && !document.getElementById("pwaHeaderInstallBtn")) {
     const btn = document.createElement("button");
     btn.id = "pwaHeaderInstallBtn";
     btn.type = "button";
     btn.onclick = window.installHostelPWA;
-    btn.className = "bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0";
-    btn.title = "Install Hostel App on Mobile / PC";
-    btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button sm:mr-1"></i> <span class="hidden sm:inline">Install App</span>`;
+    btn.className = "bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0";
+    btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button mr-1"></i> Install App`;
     headerRight.insertBefore(btn, headerRight.firstChild);
   }
-}
 
-window.addEventListener("DOMContentLoaded", setupPWAManifestAndSW);
+  // 2. Inside Login Popups (Admin, Student & Warden Login Screens)
+  ["#studentLoginGate", "#adminLoginGate", "#wardenLoginGate"].forEach(gateSel => {
+    const gateCard = document.querySelector(`${gateSel} > div`);
+    if (gateCard && !gateCard.querySelector(".pwa-login-install-btn")) {
+      const loginInstallBtn = document.createElement("button");
+      loginInstallBtn.type = "button";
+      loginInstallBtn.onclick = window.installHostelPWA;
+      loginInstallBtn.className = "pwa-login-install-btn w-full bg-emerald-50 hover:bg-emerald-700 text-emerald-900 hover:text-white border border-emerald-300 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center justify-center gap-2";
+      loginInstallBtn.innerHTML = `<i class="fa-solid fa-download"></i> Install Mobile App on Phone`;
+      gateCard.appendChild(loginInstallBtn);
+    }
+  });
+}
