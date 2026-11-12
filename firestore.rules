@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function authed() {
+      return request.auth != null;
+    }
+    function isStaff() {
+      return authed() && exists(/databases/$(database)/documents/hostel_staff/$(request.auth.uid));
+    }
+    function staffRole() {
+      return get(/databases/$(database)/documents/hostel_staff/$(request.auth.uid)).data;
+    }
+    function isFounder() {
+      return isStaff() && staffRole().role == 'founder';
+    }
+    function isStaffOf(t) {
+      return isStaff() && (staffRole().role == 'founder' || staffRole().tenant == t);
+    }
+    function licensed(t) {
+      return exists(/databases/$(database)/documents/hostel_license/$(t))
+        && get(/databases/$(database)/documents/hostel_license/$(t)).data.isSuspended != true;
+    }
+    function validApp() {
+      let d = request.resource.data;
+      return d.status == 'Pending'
+        && d.keys().hasOnly(['id','date','submittedAt','name','cnic','phone','guardian','uni','address',
+                             'resType','room','agreedRent','agreedMess','agreedSecurity',
+                             'photo','cnicFront','cnicBack','status'])
+        && d.name is string && d.name.size() >= 3 && d.name.size() <= 100
+        && d.cnic is string && d.cnic.size() <= 40
+        && d.phone is string && d.phone.size() <= 30
+        && d.guardian is string && d.guardian.size() <= 30
+        && d.uni is string && d.uni.size() <= 150
+        && d.address is string && d.address.size() <= 200
+        && d.room is string && d.room.size() <= 20
+        && d.photo is string && d.photo.size() <= 700000
+        && d.cnicFront is string && d.cnicFront.size() <= 700000
+        && d.cnicBack is string && d.cnicBack.size() <= 700000;
+    }
+
+    match /hostel_staff/{uid} {
+      allow read: if authed() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /hostel_license/{t} {
+      allow read: if true;
+      allow write: if isFounder();
+    }
+
+    match /hostel_public/{t} {
+      allow read: if true;
+      allow write: if isStaffOf(t) && licensed(t);
+    }
+
+    match /hostel_private/{t} {
+      allow read: if isFounder() || (isStaffOf(t) && licensed(t));
+      allow write: if isStaffOf(t) && licensed(t);
+    }
+
+    match /hostel_apps/{t}/list/{id} {
+      allow create: if authed() && licensed(t) && validApp();
+      allow read, update, delete: if isStaffOf(t) && licensed(t);
+    }
+
+    // Purana data migrate karne ke liye. Migration ke baad ye block hata dein.
+    match /hostel_system/{t}/{document=**} {
+      allow read, write: if isStaffOf(t);
+    }
+  }
+}
