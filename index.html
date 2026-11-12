@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#4f46e5">
   <link rel="icon" href="logo.png">
+  <link rel="manifest" href="manifest.json">
   <title>Online Hostel Admission Portal</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -32,11 +33,10 @@
   <header class="max-w-6xl mx-auto px-4 py-8 text-center space-y-2">
     <span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold px-3 py-1 rounded-full uppercase">Online Bed Reservation</span>
     <h1 id="pubHostelName" class="text-3xl sm:text-4xl font-extrabold text-white">Online Hostel Admission Portal</h1>
-    <p class="text-slate-400 max-w-2xl mx-auto text-xs sm:text-sm">Select an available room to see the monthly rent, mess charges and security deposit, then submit your admission application.</p>
+    <p class="text-slate-400 max-w-2xl mx-auto text-xs sm:text-sm">Room chunein, monthly rent, mess charges aur security deposit dekhein, phir application submit karein.</p>
   </header>
 
   <main class="max-w-6xl mx-auto px-4 pb-16 grid grid-cols-1 lg:grid-cols-3 gap-8">
-
     <div class="space-y-6">
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
         <h2 class="text-base font-bold text-white"><i class="fa-solid fa-bed text-emerald-400 mr-2"></i> Available Rooms & Rates</h2>
@@ -50,42 +50,42 @@
 
     <div class="lg:col-span-2 bg-slate-900 border border-indigo-500/40 rounded-2xl p-6 sm:p-8 shadow-2xl">
       <h2 class="text-xl font-bold text-white mb-1"><i class="fa-solid fa-file-signature text-indigo-400 mr-2"></i> Student Online Application Form</h2>
-      <p class="text-xs text-slate-400 mb-6">Fill out your details below. After approval you can log in to the Student Portal.</p>
+      <p class="text-xs text-slate-400 mb-6">Apni details bharein. Approval ke baad aap Student Portal mein login kar sakte hain.</p>
 
       <div id="noRoomsAlert" class="hidden mb-6 p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs">
-        <p class="font-bold">Room bookings are being updated</p>
-        <p class="mt-1">Administration is currently updating room availability. Please check back shortly.</p>
+        <p class="font-bold">Room bookings update ho rahi hain</p>
+        <p class="mt-1">Thodi dair baad dobara check karein.</p>
       </div>
 
       <div id="successBanner" class="hidden mb-6 p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-xs space-y-2">
-        <p class="font-bold text-sm"><i class="fa-solid fa-circle-check mr-1"></i> Application Submitted Successfully!</p>
+        <p class="font-bold text-sm"><i class="fa-solid fa-circle-check mr-1"></i> Application Submit Ho Gayi!</p>
         <p id="appTrackText"></p>
       </div>
 
       <form id="publicAppForm" onsubmit="submitPublicApplication(event)" class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm">
         <div>
           <label class="text-slate-400 block mb-1">Student Full Name *</label>
-          <input id="appName" required type="text" placeholder="Enter Full Name" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
+          <input id="appName" required minlength="3" maxlength="100" type="text" placeholder="Full Name" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
         </div>
         <div>
           <label class="text-slate-400 block mb-1">CNIC / B-Form Number *</label>
-          <input id="appCnic" required type="text" placeholder="36302-XXXXXXX-X" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
+          <input id="appCnic" required maxlength="40" type="text" placeholder="36302-XXXXXXX-X" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
         </div>
         <div>
           <label class="text-slate-400 block mb-1">Student WhatsApp Phone *</label>
-          <input id="appPhone" required type="text" placeholder="03XX-XXXXXXX" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
+          <input id="appPhone" required maxlength="30" type="text" placeholder="03XX-XXXXXXX" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
         </div>
         <div>
-          <label class="text-slate-400 block mb-1">Father / Guardian Emergency Phone *</label>
-          <input id="appGuardian" required type="text" placeholder="03XX-XXXXXXX" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
+          <label class="text-slate-400 block mb-1">Father / Guardian Phone *</label>
+          <input id="appGuardian" required maxlength="30" type="text" placeholder="03XX-XXXXXXX" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
         </div>
         <div>
           <label class="text-slate-400 block mb-1">University / Department *</label>
-          <input id="appUni" required type="text" placeholder="University & Department" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
+          <input id="appUni" required maxlength="150" type="text" placeholder="University & Department" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
         </div>
         <div>
           <label class="text-slate-400 block mb-1">Permanent Home Address *</label>
-          <input id="appAddress" required type="text" placeholder="City & Street Address" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
+          <input id="appAddress" required maxlength="200" type="text" placeholder="City & Street Address" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white">
         </div>
         <div>
           <label class="text-slate-400 block mb-1">Admission Type *</label>
@@ -101,12 +101,12 @@
 
         <div class="sm:col-span-2 bg-slate-950 border border-indigo-500/40 rounded-xl p-4 space-y-2">
           <div class="flex justify-between items-center border-b border-slate-800 pb-2">
-            <span class="text-xs font-bold uppercase text-indigo-400"><i class="fa-solid fa-coins mr-1"></i> Official Room Fee Breakdown</span>
-            <span id="previewRoomBadge" class="bg-indigo-600/20 text-indigo-300 text-[11px] px-2 py-0.5 rounded font-semibold">Select Room</span>
+            <span class="text-xs font-bold uppercase text-indigo-400"><i class="fa-solid fa-coins mr-1"></i> Room Fee Breakdown</span>
+            <span id="previewRoomBadge" class="bg-indigo-600/20 text-indigo-300 text-[11px] px-2 py-0.5 rounded font-semibold">Room select karein</span>
           </div>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-xs">
-            <div><span class="text-slate-400 block">Monthly Room Rent</span><strong id="prevRent" class="text-white text-sm">Rs. 0</strong></div>
-            <div><span class="text-slate-400 block">Monthly Mess Fee</span><strong id="prevMess" class="text-white text-sm">Rs. 0</strong></div>
+            <div><span class="text-slate-400 block">Monthly Rent</span><strong id="prevRent" class="text-white text-sm">Rs. 0</strong></div>
+            <div><span class="text-slate-400 block">Monthly Mess</span><strong id="prevMess" class="text-white text-sm">Rs. 0</strong></div>
             <div><span class="text-slate-400 block">Monthly Total</span><strong id="prevMonthlyTotal" class="text-emerald-400 text-sm">Rs. 0 / mo</strong></div>
             <div><span class="text-slate-400 block">Security Deposit</span><strong id="prevSecurity" class="text-amber-400 text-sm">Rs. 0</strong></div>
           </div>
@@ -132,7 +132,7 @@
 
         <label class="sm:col-span-2 flex items-start gap-2.5 bg-slate-950 border border-slate-700 rounded-xl p-3.5 cursor-pointer">
           <input id="agreeRulesCheckbox" type="checkbox" required class="w-4 h-4 mt-0.5 accent-indigo-600 shrink-0">
-          <span class="text-slate-200 leading-snug">I have read and agree to the <button type="button" onclick="openHostelRulesModal()" class="text-indigo-300 underline">Hostel Rules, Terms & Conditions</button> *</span>
+          <span class="text-slate-200 leading-snug">Main <button type="button" onclick="openHostelRulesModal()" class="text-indigo-300 underline">Hostel Rules, Terms & Conditions</button> parh chuka hun aur agree karta hun *</span>
         </label>
 
         <div class="sm:col-span-2 pt-2">
@@ -147,79 +147,76 @@
   <script src="db.js"></script>
   <script>
     const BTN_HTML = '<i class="fa-solid fa-paper-plane mr-2"></i> Submit Online Admission Application';
+    const $ = id => document.getElementById(id);
+
+    function availableRooms(db) {
+      return db.rooms.filter(r => Math.max(0, r.capacity - (db.occupancy[r.no] || 0)) > 0);
+    }
 
     function loadPublicSite() {
       const db = getDB();
-      document.getElementById("pubHostelName").innerText = db.settings.hostelName;
-      document.getElementById("navHostelBrand").innerText = db.settings.hostelName;
+      $("pubHostelName").innerText = db.settings.hostelName;
+      $("navHostelBrand").innerText = db.settings.hostelName;
 
-      const roomsDiv = document.getElementById("publicRoomsList");
-      const roomSelect = document.getElementById("appRoom");
-      const previous = roomSelect.value; // keep the user's choice across live updates
-      const activeStudents = db.students.filter(s => s.status === "Active");
+      const roomsDiv = $("publicRoomsList");
+      const roomSelect = $("appRoom");
+      const previous = roomSelect.value;
       roomsDiv.innerHTML = "";
       roomSelect.innerHTML = "";
 
-      const submitBtn = document.getElementById("submitAppBtn");
+      const submitBtn = $("submitAppBtn");
+      const open = availableRooms(db);
+
       if (db.rooms.length === 0) {
-        roomsDiv.innerHTML = `<p class="text-slate-500">No rooms listed yet.</p>`;
-        document.getElementById("noRoomsAlert").classList.remove("hidden");
-        submitBtn.disabled = true;
-        submitBtn.classList.add("opacity-40", "cursor-not-allowed");
-      } else {
-        document.getElementById("noRoomsAlert").classList.add("hidden");
-        submitBtn.disabled = false;
-        submitBtn.classList.remove("opacity-40", "cursor-not-allowed");
-
-        db.rooms.forEach(r => {
-          const occupied = activeStudents.filter(s => String(s.room) === r.no).length;
-          const empty = Math.max(0, r.capacity - occupied);
-          roomsDiv.innerHTML += `
-            <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-              <div class="flex justify-between items-center">
-                <strong class="text-white">Room ${esc(r.no)} (${esc(r.type)})</strong>
-                <span class="${empty > 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'} px-2 py-0.5 rounded-full text-[11px] font-bold">${empty > 0 ? empty + " Beds Empty" : "Full"}</span>
-              </div>
-              <p class="text-slate-400">Rent: <strong class="text-white">Rs. ${r.rent.toLocaleString()}</strong> | Mess: <strong class="text-white">Rs. ${r.mess.toLocaleString()}</strong></p>
-              <p class="text-[11px] text-indigo-400">Security: Rs. ${r.security.toLocaleString()} ${r.facilities ? "| " + esc(r.facilities) : ""}</p>
-            </div>`;
-          if (empty > 0) {
-            roomSelect.innerHTML += `<option value="${esc(r.no)}">Room ${esc(r.no)} (${esc(r.type)}) — Rent: Rs. ${r.rent.toLocaleString()} + Mess: Rs. ${r.mess.toLocaleString()}</option>`;
-          }
-        });
-        if (previous && [...roomSelect.options].some(o => o.value === previous)) roomSelect.value = previous;
+        roomsDiv.innerHTML = `<p class="text-slate-500">Abhi koi room listed nahi hai.</p>`;
       }
+      $("noRoomsAlert").classList.toggle("hidden", open.length > 0);
+      submitBtn.disabled = open.length === 0;
+      submitBtn.classList.toggle("opacity-40", open.length === 0);
+      submitBtn.classList.toggle("cursor-not-allowed", open.length === 0);
 
-      const messDiv = document.getElementById("publicMessList");
-      messDiv.innerHTML = db.messMenu.length
+      db.rooms.forEach(r => {
+        const empty = Math.max(0, r.capacity - (db.occupancy[r.no] || 0));
+        roomsDiv.innerHTML += `
+          <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+            <div class="flex justify-between items-center">
+              <strong class="text-white">Room ${esc(r.no)} (${esc(r.type)})</strong>
+              <span class="${empty > 0 ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"} px-2 py-0.5 rounded-full text-[11px] font-bold">${empty > 0 ? empty + " Beds Empty" : "Full"}</span>
+            </div>
+            <p class="text-slate-400">Rent: <strong class="text-white">${money(r.rent)}</strong> | Mess: <strong class="text-white">${money(r.mess)}</strong></p>
+            <p class="text-[11px] text-indigo-400">Security: ${money(r.security)} ${r.facilities ? "| " + esc(r.facilities) : ""}</p>
+          </div>`;
+      });
+
+      open.forEach(r => {
+        roomSelect.innerHTML += `<option value="${esc(r.no)}">Room ${esc(r.no)} (${esc(r.type)}) — Rent: ${money(r.rent)} + Mess: ${money(r.mess)}</option>`;
+      });
+      if (previous && [...roomSelect.options].some(o => o.value === previous)) roomSelect.value = previous;
+
+      $("publicMessList").innerHTML = db.messMenu.length
         ? db.messMenu.map(m => `<div class="p-2.5 bg-slate-950 rounded-lg border border-slate-800"><strong class="text-indigo-400">${esc(m.day)}:</strong> B: ${esc(m.b)} | L: ${esc(m.l)} | D: ${esc(m.d)}</div>`).join("")
-        : `<p class="text-slate-500">Mess menu updating.</p>`;
+        : `<p class="text-slate-500">Mess menu jaldi update hoga.</p>`;
 
       updateSelectedRoomFeePreview();
     }
 
     function updateSelectedRoomFeePreview() {
       const db = getDB();
-      const r = db.rooms.find(rm => rm.no === document.getElementById("appRoom").value);
+      const r = db.rooms.find(rm => rm.no === $("appRoom").value);
       if (!r) return;
-      document.getElementById("previewRoomBadge").innerText = `Room ${r.no} (${r.type})`;
-      document.getElementById("prevRent").innerText = `Rs. ${r.rent.toLocaleString()}`;
-      document.getElementById("prevMess").innerText = `Rs. ${r.mess.toLocaleString()}`;
-      document.getElementById("prevMonthlyTotal").innerText = `Rs. ${(r.rent + r.mess).toLocaleString()} / mo`;
-      document.getElementById("prevSecurity").innerText = `Rs. ${r.security.toLocaleString()}`;
+      $("previewRoomBadge").innerText = `Room ${r.no} (${r.type})`;
+      $("prevRent").innerText = money(r.rent);
+      $("prevMess").innerText = money(r.mess);
+      $("prevMonthlyTotal").innerText = money(r.rent + r.mess) + " / mo";
+      $("prevSecurity").innerText = money(r.security);
     }
 
     async function submitPublicApplication(e) {
       e.preventDefault();
       const db = getDB();
-      const r = db.rooms.find(rm => rm.no === document.getElementById("appRoom").value);
-      if (!r) return alert("❌ Please select an available room!");
-      if (!document.getElementById("agreeRulesCheckbox").checked) return alert("⚠️ Please read and agree to the Hostel Rules first!");
-
-      const cnic = document.getElementById("appCnic").value.trim();
-      const cnicDigits = digitsOnly(cnic);
-      const dup = db.applications.find(a => a.status !== "Rejected" && cnicDigits.length >= 13 && digitsOnly(a.cnic) === cnicDigits);
-      if (dup) return alert(`⚠️ An application with this CNIC already exists (${dup.id}, status: ${dup.status}).`);
+      const r = availableRooms(db).find(rm => rm.no === $("appRoom").value);
+      if (!r) return alert("❌ Please available room select karein.");
+      if (!$("agreeRulesCheckbox").checked) return alert("⚠️ Pehle Hostel Rules se agree karein.");
 
       const appId = "APP-" + Date.now().toString(36).toUpperCase() + Math.floor(100 + Math.random() * 900);
       const uploads = window.kycTempUploads || {};
@@ -227,13 +224,13 @@
         id: appId,
         date: new Date().toLocaleDateString("en-GB"),
         submittedAt: new Date().toISOString(),
-        name: document.getElementById("appName").value.trim(),
-        cnic,
-        phone: document.getElementById("appPhone").value.trim(),
-        guardian: document.getElementById("appGuardian").value.trim(),
-        uni: document.getElementById("appUni").value.trim(),
-        address: document.getElementById("appAddress").value.trim(),
-        resType: document.getElementById("appResType").value,
+        name: $("appName").value.trim(),
+        cnic: $("appCnic").value.trim(),
+        phone: $("appPhone").value.trim(),
+        guardian: $("appGuardian").value.trim(),
+        uni: $("appUni").value.trim(),
+        address: $("appAddress").value.trim(),
+        resType: $("appResType").value,
         room: r.no,
         agreedRent: r.rent,
         agreedMess: r.mess,
@@ -244,29 +241,27 @@
         status: "Pending"
       };
 
-      const btn = document.getElementById("submitAppBtn");
+      const btn = $("submitAppBtn");
       btn.disabled = true;
       btn.innerText = "Submitting...";
       try {
         await submitApplication(app);
         window.kycTempUploads = { photo: "", cnicFront: "", cnicBack: "" };
         e.target.reset();
-        ["pubPrevPhoto", "pubPrevCnicFront", "pubPrevCnicBack"].forEach(id => document.getElementById(id).classList.add("hidden"));
-        document.getElementById("successBanner").classList.remove("hidden");
-        document.getElementById("appTrackText").innerText = `Tracking ID: ${appId}. Your application for Room ${r.no} (Rent: Rs. ${r.rent.toLocaleString()} + Mess: Rs. ${r.mess.toLocaleString()}) has been sent to administration.`;
+        ["pubPrevPhoto", "pubPrevCnicFront", "pubPrevCnicBack"].forEach(id => $(id).classList.add("hidden"));
+        $("successBanner").classList.remove("hidden");
+        $("appTrackText").innerText = `Tracking ID: ${appId}. Room ${r.no} ki application admin ko bhej di gayi hai.`;
         updateSelectedRoomFeePreview();
       } catch (err) {
-        alert("❌ Submission failed. Please check your internet connection and try again.");
+        console.error(err);
+        alert("❌ Submission fail hui. Internet check karein aur dobara try karein.");
       } finally {
         btn.disabled = false;
         btn.innerHTML = BTN_HTML;
       }
     }
 
-    window.renderPublicPage = loadPublicSite;
-    window.loadPublicSite = loadPublicSite;
     window.addEventListener("DOMContentLoaded", loadPublicSite);
-    loadPublicSite();
   </script>
 </body>
 </html>
