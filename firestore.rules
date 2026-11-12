@@ -15,12 +15,19 @@ service cloud.firestore {
       return isStaff() && staffRole().role == 'founder';
     }
     function isStaffOf(t) {
-      return isStaff() && (staffRole().role == 'founder' || staffRole().tenant == t);
+      return isStaff() && (isFounder() || staffRole().tenant == t);
     }
     function licensed(t) {
       return exists(/databases/$(database)/documents/hostel_license/$(t))
         && get(/databases/$(database)/documents/hostel_license/$(t)).data.isSuspended != true;
     }
+    function isStudent() {
+      return authed() && exists(/databases/$(database)/documents/hostel_students/$(request.auth.uid));
+    }
+    function myStudent() {
+      return get(/databases/$(database)/documents/hostel_students/$(request.auth.uid)).data;
+    }
+
     function validApp() {
       let d = request.resource.data;
       return d.status == 'Pending'
@@ -39,32 +46,85 @@ service cloud.firestore {
         && d.cnicBack is string && d.cnicBack.size() <= 700000;
     }
 
+    function validInbox() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['type','owner','tenant','studentId','createdAt','tid','receipt','issue','from','to','reason'])
+        && d.keys().hasAll(['type','owner','tenant','studentId','createdAt','tid','receipt','issue','from','to','reason'])
+        && d.type in ['tid', 'complaint', 'leave']
+        && d.tid.size() <= 40
+        && d.receipt.size() <= 700000
+        && d.issue.size() <= 500
+        && d.from.size() <= 10
+        && d.to.size() <= 10
+        && d.reason.size() <= 200
+        && (d.type != 'tid' || (d.tid.size() >= 3 && (d.receipt == '' || d.receipt.matches('data:image/.*'))))
+        && (d.type != 'complaint' || d.issue.size() >= 3)
+        && (d.type != 'leave' || (d.from.size() == 10 && d.to.size() == 10 && d.reason.size() >= 3));
+    }
+
+    // Staff ka role. Sirf wahi user padh sakta hai, likhna Console se hota hai.
     match /hostel_staff/{uid} {
       allow read: if authed() && request.auth.uid == uid;
       allow write: if false;
     }
 
+    // Subscription status: sab padh sakte hain, sirf founder likhe
     match /hostel_license/{t} {
       allow read: if true;
       allow write: if isFounder();
     }
 
+    // Public data: rooms, mess menu, settings, occupancy
     match /hostel_public/{t} {
       allow read: if true;
       allow write: if isStaffOf(t) && licensed(t);
     }
 
+    // Private data: students, complaints, leaves, expenses (sirf staff)
     match /hostel_private/{t} {
-      allow read: if isFounder() || (isStaffOf(t) && licensed(t));
-      allow write: if isStaffOf(t) && licensed(t);
+      allow read, write: if isStaffOf(t) && licensed(t);
     }
 
+    // Admission applications
     match /hostel_apps/{t}/list/{id} {
       allow create: if authed() && licensed(t) && validApp();
       allow read, update, delete: if isStaffOf(t) && licensed(t);
     }
 
-    // Purana data migrate karne ke liye. Migration ke baad ye block hata dein.
+    // Student login ka mapping: uid -> { tenant, studentId, docId }
+    match /hostel_students/{uid} {
+      allow read: if authed() && request.auth.uid == uid;
+      allow create, update: if isStaffOf(request.resource.data.tenant);
+      allow delete: if isStaffOf(resource.data.tenant);
+    }
+
+    // Login lookup: hash(CNIC/ID) -> { tenant, email }. Koi personal data nahi.
+    match /hostel_index/{k} {
+      allow read: if true;
+      allow create, update: if isStaffOf(request.resource.data.tenant);
+      allow delete: if isStaffOf(resource.data.tenant);
+    }
+
+    // Har student ka apna view (fee, complaints, leaves, roommates)
+    match /hostel_student_view/{docId} {
+      allow read: if (isStudent() && myStudent().docId == docId && licensed(myStudent().tenant))
+                  || isStaffOf(resource.data.tenant);
+      allow create, update: if isStaffOf(request.resource.data.tenant);
+      allow delete: if isStaffOf(resource.data.tenant);
+    }
+
+    // Student ki requests (TID, complaint, leave). Student sirf create kar sakta hai.
+    match /hostel_inbox/{id} {
+      allow create: if isStudent()
+        && validInbox()
+        && request.resource.data.owner == request.auth.uid
+        && myStudent().tenant == request.resource.data.tenant
+        && myStudent().studentId == request.resource.data.studentId
+        && licensed(request.resource.data.tenant);
+      allow read, delete: if isStaffOf(resource.data.tenant);
+    }
+
+    // Purana data migrate hone ke baad ye block hata dein
     match /hostel_system/{t}/{document=**} {
       allow read, write: if isStaffOf(t);
     }
